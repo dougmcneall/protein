@@ -1,0 +1,13 @@
+electrostatic_charge hydrophobicity organelle
+2.9 1.1 M+P
+0.9 1.1 ER
+4.9 2.8 ER
+1.9 1.9 E+M+P
+4.9 1.9 P
+2.9 1.6 P
+1.9 1.6 M
+4.2 1.9 M+P
+2.2 1.9 M+P
+1.2 1.9 M+P
+-1.1 1.9 M
+4.9 1.9 M+P

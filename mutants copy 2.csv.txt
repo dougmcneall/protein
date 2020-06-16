@@ -1,0 +1,13 @@
+tmd_gravy,tail_charge,location
+1.1,2.9,MITO/PO
+1.1,0.9,ER
+2.8,4.9,ER
+1.9,1.9,ER/MITO/PO
+1.9,4.9,PO
+1.6,2.9,P0
+1.6,1.9,MITO
+1.9,4.2,MITO/PO
+1.9,2.2,MITO/PO
+1.9,1.2,MITO/PO
+1.9,-1.1,MITO
+1.9,4.9,MITO/PO

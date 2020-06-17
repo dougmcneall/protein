@@ -377,13 +377,11 @@ summary {
 <p><a href="https://jcs.biologists.org/content/130/9/1675.short" class="uri">https://jcs.biologists.org/content/130/9/1675.short</a></p>
 <p>Code by Doug McNeall based on data by Joe Costello.</p>
 <p>The code currently uses a support vector machine (SVM) for classification of tail-anchoring location, depending on TMD hydrophobicity and tail charge.</p>
+<p>Code is here: <a href="https://github.com/dougmcneall/protein/blob/master/docs/protein.Rmd" class="uri">https://github.com/dougmcneall/protein/blob/master/docs/protein.Rmd</a></p>
 </div>
 <div id="setup" class="section level2">
 <h2>setup</h2>
-<pre class="r"><code># ---------------------------------------------------------
-# 0. Packages, palettes and setup
-# ---------------------------------------------------------
-set.seed(42)
+<pre class="r"><code>set.seed(42)
 
 library(RColorBrewer)
 library(e1071)
@@ -408,10 +406,7 @@ truncpat &lt;- c(ersalmon, mitoblue, pogreen)</code></pre>
 </div>
 <div id="data" class="section level2">
 <h2>Data</h2>
-<pre class="r"><code># ---------------------------------------------------------
-# 1. data
-# ---------------------------------------------------------
-protein &lt;- read.csv('../data/protein.csv')
+<pre class="r"><code>protein &lt;- read.csv('../data/protein.csv')
 # Or, we could just load up the truncated file (added 10th December 2015)
 # This breaks the colour palettes at the moment.
 protein_trunc &lt;- read.csv('../data/protein_trunc.csv')

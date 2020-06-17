@@ -57,10 +57,10 @@ truncpat <- c(ersalmon, mitoblue, pogreen)
 # ---------------------------------------------------------
 # 1. data
 # ---------------------------------------------------------
-protein <- read.csv('protein.csv')
+protein <- read.csv('../data/protein.csv')
 # Or, we could just load up the truncated file (added 10th December 2015)
 # This breaks the colour palettes at the moment.
-protein_trunc <- read.csv('protein_trunc.csv')
+protein_trunc <- read.csv('../data/protein_trunc.csv')
 
 # factors are alphabetical, so as.numeric gives
 # ER          = 1
@@ -92,10 +92,10 @@ test <- as.matrix(expand.grid(tmd_gravy_seq, tail_charge_seq))
 colnames(test) <- colnames(train_trunc)
 
 # skip the last row, as there is no tail charge 
-target<- read.table('protein_target.txt', sep = '\t', nrows = 244, header = TRUE)
+target<- read.table('../data/protein_target.txt', sep = '\t', nrows = 244, header = TRUE)
 colnames(target) <- colnames(train_trunc)
 
-mutants <- read.csv('mutants.csv')
+mutants <- read.csv('../data/mutants.csv')
 
 # A little aside to get the factors in the data sets to be the same. rbind()
 # changes the as.numeric factors to match. 

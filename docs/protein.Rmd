@@ -22,7 +22,7 @@ The code currently uses a support vector machine (SVM) for classification of tai
 
 Code is here: <https://github.com/dougmcneall/protein/blob/master/docs/protein.Rmd>
   
-## setup
+## Setup
 ```{r}
 set.seed(42)
 
@@ -181,6 +181,7 @@ Train a probabilistic support vector machine (SVM) on the truncated data, and vi
 ```{r, fig.width = 7, fig.height  = 7}
 # Why does this predict some non-seen classes?
 svm.fit.prob <- svm(location~., data = protein_trunc, probability = TRUE)
+
 svm.pred.prob <- predict(svm.fit.prob, newdata=test, probability = TRUE)
 
 # How many does the svm fit correctly?
@@ -352,6 +353,47 @@ filled.contour(tmd_gravy_seq, tail_charge_seq, ermat,
  xlab='tmd_gravy', ylab='tail_charge', main='SVM ER probability', col=blues)
 
 ```
+
+
+## New data
+
+```{r, fig.width=8, fig.height = 8}
+
+new_data <- read.csv('../data/new_data.csv') 
+
+ecunc <- new_data[ , 2:3]
+colnames(ecunc) <- colnames(protein)[1:2]
+ix <- is.finite( ecunc[, 'tmd_gravy'] )
+
+ecunc_clean <- ecunc[ix, ] 
+
+
+target.prob.ecunc <- predict(svm.fit.prob, newdata=ecunc_clean, probability = TRUE)
+
+svm.prob.df.ecunc <- attr(target.prob.ecunc,'prob')
+
+par(las=1)
+
+# set up the axes
+plot(ecunc_clean, type = 'n',  main = 'SVM classifier target predictions', xlim = c(0.6,4), ylim = c(-4, 7))
+
+# "highest probability" classification of the new data
+points(ecunc_clean, col = truncpat[target.prob.ecunc], pch = 21, cex = 2)
+
+# probability contours from the original model
+contour(tmd_gravy_seq, tail_charge_seq, mitomat, add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = mitoblue)
+contour(tmd_gravy_seq, tail_charge_seq, pomat,add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = pogreen)
+contour(tmd_gravy_seq, tail_charge_seq, ermat,add = TRUE, levels = c(0.5,0.6,0.7,0.8), col = ersalmon)
+
+# plot the original protein_trunc data
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black',bg = truncpat[protein_trunc$location], pch = 21,
+       cex = 2)
+
+legend('topright', legend = unique(protein_trunc$location), col = 'black', pt.bg = truncpat[unique(protein_trunc$location)], pch = 21, text.col = truncpat[unique(protein_trunc$location)], bg = 'white')
+
+```
+
+
 
 
 ```{r, include=FALSE}

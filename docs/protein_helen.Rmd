@@ -1,0 +1,363 @@
+---
+title: "protein_helen"
+author: "Doug McNeall"
+date: "2020-07-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+Classification of protein tail-anchoring locations.  
+
+This code was use for the analysis in the paper "Predicting the targeting of tail-anchored proteins to subcellular compartments in mammalian cells" by Costello et al. (2017). Journal of Cell Science 2017 130: 1675-1687; doi: 10.1242/jcs.200204  
+
+<https://jcs.biologists.org/content/130/9/1675.short>
+
+Code by Doug McNeall based on data by Joe Costello.
+
+The code currently uses a support vector machine (SVM) for classification of tail-anchoring location, depending on TMD hydrophobicity and tail charge.
+
+Code is here: <https://github.com/dougmcneall/protein/blob/master/docs/protein.Rmd>
+  
+## Setup
+```{r}
+set.seed(42)
+
+library(RColorBrewer)
+library(e1071)
+library(MASS)
+
+paired <- brewer.pal(6,'Paired') 
+blues <- brewer.pal(9,'Blues')
+
+mitoblue <- '#A2D9F7'
+pogreen  <- '#A8D4AF'
+ersalmon <- '#F6B096'
+
+catpat <- paired
+catpat[1] <- ersalmon
+catpat[2] <- mitoblue
+catpat[6] <- pogreen
+catpat[3] <- paired[6]
+catpat[4] <- paired[2]
+catpat[5] <- paired[4]
+
+truncpat <- c(ersalmon, mitoblue, pogreen)
+
+```
+
+
+## Data
+
+```{r}
+protein <- read.csv('../data/protein.csv')
+# Or, we could just load up the truncated file (added 10th December 2015)
+# This breaks the colour palettes at the moment.
+protein_trunc <- read.csv('../data/protein_trunc.csv')
+
+# factors are alphabetical, so as.numeric gives
+# ER          = 1
+# MIT0        = 2
+# MITO/ER     = 3
+# MITO/PO     = 4
+# MITO/PO/ER  = 5
+# PO          = 6
+
+# Training data 
+train <- subset(protein, select = c('tmd_gravy', 'tail_charge'))
+cl <- protein$location
+
+# Data truncated to just the main 3 classes
+
+#protein_trunc <- subset(protein, location=='ER' | location=='MITO' | location=='PO')
+
+train_trunc <- subset(protein_trunc, select = c('tmd_gravy', 'tail_charge'))
+cl_trunc <- protein_trunc$location
+
+upper <- apply(train_trunc, 2, max)
+lower <- apply(train_trunc, 2, min)
+
+tmd_gravy_seq <- seq(from=lower[1], to=upper[1], length.out = 50)
+tail_charge_seq <- seq(from=lower[2], to=upper[2], length.out = 50)
+
+# A grid of test points that covers the entire data space
+test <- as.matrix(expand.grid(tmd_gravy_seq, tail_charge_seq))
+colnames(test) <- colnames(train_trunc)
+
+# skip the last row, as there is no tail charge 
+target<- read.table('../data/protein_target.txt', sep = '\t', nrows = 244, header = TRUE)
+colnames(target) <- colnames(train_trunc)
+
+mutants <- read.csv('../data/mutants.csv')
+
+# A little aside to get the factors in the data sets to be the same. rbind()
+# changes the as.numeric factors to match. 
+combined <- rbind(protein, mutants)
+
+mutants.ix <- seq(from = (nrow(protein)+1), to = nrow(protein)+nrow(mutants), by = 1)
+mutants_refactor <- combined[mutants.ix, ]
+
+# "Shared location" data
+protein_shared <- subset(protein, location=='MITO/ER' | location=='MITO/PO' | location=='MITO/PO/ER')
+
+
+# some new test sites
+
+test.sites <- data.frame(cbind(c(1.54, 1.43, 2.34), c(3.9, 4.6, -0.1)))
+
+colnames(test.sites) <- c('tmd_gravy', 'tail_charge')
+
+#1) TMD GRAVY = 1.54 Charge =  3.9
+#2) TMD GRAVY = 1.43 Charge =  4.6
+#3) TMD GRAVY = 2.34 Charge = -0.1
+
+```
+
+## Plot all the data (with mutants)
+
+```{r, fig.width = 7, fig.height = 7}
+
+par(las = 1, cex = 1.3)
+plot(protein$tmd_gravy, protein$tail_charge, bg = catpat[protein$location],
+ pch = 21, col = 'black',
+ xlab = 'tmd_gravy', ylab = 'tail_charge')
+
+points(mutants_refactor$tmd_gravy, mutants_refactor$tail_charge, col = 'black', bg = catpat[mutants_refactor$location], pch = 24)
+
+legend('topleft', legend = unique(protein$location), pt.bg = catpat[unique(protein$location)], pch = 21, text.col = catpat[unique(protein$location)], cex = 0.8, bty = 'n' )
+legend('top', legend = c( 'triangles indicate mutants'), pch = c(24), cex = 0.8, bty = 'n')
+#dev.print(pdf, file='protein_and_mutants.pdf', width = 6, height = 6)
+
+```
+
+```{r, fig.width = 7, fig.height = 7}
+
+# Data truncated to just the 3 main classes
+#dev.new()
+par(las = 1, cex = 1.3)
+plot(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black', bg = truncpat[protein_trunc$location], pch = 21,
+     xlab = "tmd_gravy", ylab = "tail_charge")
+
+legend('topleft', legend = unique(protein_trunc$location), col = 'black', pt.bg = truncpat[unique(protein_trunc$location)], pch = 21, text.col = truncpat[unique(protein_trunc$location)] )
+#dev.print(pdf, file='protein_trunc.pdf', width = 6, height = 6)
+
+
+```
+
+## Support Vector Machine Classification  
+
+Train a non-probabilistic support vector machine (SVM) on the truncated data, and visualise the decision boundaries.
+
+```{r, fig.width = 7, fig.height = 7}
+
+# Non-probabilistic SVM fit
+svm.fit <- svm(location~., data = protein_trunc, probability = FALSE)
+svm.pred <- predict(svm.fit, newdata=test, probability = FALSE)
+
+# misclassification rate for the svm is ~18%
+svm.mcr = 1 - (sum(predict(svm.fit)==protein_trunc$location)/ length(protein_trunc$location))
+
+par(las = 1, cex = 1.3)
+plot(test, col = truncpat[svm.pred], pch = 20, cex = 0.8, main = 'SVM classifier prediction')
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black', bg = truncpat[protein_trunc$location], pch = 21)
+
+legend('topleft', legend = unique(protein_trunc$location),
+pt.bg = truncpat[unique(protein_trunc$location)],
+pch = 21,
+col = 'black',
+text.col=truncpat[unique(protein_trunc$location)],
+ bg = 'white')
+#dev.print(pdf, file = 'svm_prediction.pdf', width = 6, height = 6)
+ 
+```
+
+## E.cuniculi non-probabilistic prediction
+```{r,fig.width = 7, fig.height = 7}
+
+E.cunic <- read.csv('../data/helen/E.cuniculi.csv')
+
+svm.pred.E.cunic <- predict(svm.fit, newdata=E.cunic, probability = FALSE)
+
+mx <- apply(E.cunic, 2, max)
+mn <- apply(E.cunic, 2, min)
+
+par(las = 1, cex = 1.3)
+plot(test, col = truncpat[svm.pred], pch = 20, cex = 0.8, main = 'SVM classifier prediction',
+     xlim = c(mn[1], mx[1]),
+     ylim = c(mn[2], mx[2])
+     )
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black', bg = truncpat[protein_trunc$location], pch = 21)
+
+points(E.cunic$tmd_gravy, E.cunic$tail_charge, col = 'red', bg = truncpat[svm.pred.E.cunic], pch = 21)
+
+legend('topleft', legend = unique(protein_trunc$location),
+pt.bg = truncpat[unique(protein_trunc$location)],
+pch = 21,
+col = 'black',
+text.col=truncpat[unique(protein_trunc$location)],
+ bg = 'white')
+#dev.print(pdf, file = 'svm_prediction.pdf', width = 6, height = 6)
+
+
+```
+
+
+```{r}
+
+# create a list of all the csv files in the directory
+filelist <- dir('../data/helen/', pattern = '*.csv')
+
+#loop over the files
+for(i in filelist){
+  # put all the steps of the previous code chunk in here, e.g.
+  
+  # read data for prediction locations
+  dat <- read.csv(paste0('../data/helen/', i))
+  # make the predictions
+  newpred <- predict(svm.fit, newdata = dat, probability = FALSE)
+  
+  # plot here
+  # ...
+  
+}
+
+```
+
+
+##Probabilistic SVM fit
+
+Train a probabilistic support vector machine (SVM) on the truncated data, and visualise the probability contours.
+
+```{r, fig.width = 7, fig.height  = 7}
+# Why does this predict some non-seen classes?
+svm.fit.prob <- svm(location~., data = protein_trunc, probability = TRUE)
+
+svm.pred.prob <- predict(svm.fit.prob, newdata=test, probability = TRUE)
+
+# How many does the svm fit correctly?
+
+fit.hit <- sum(svm.fit.prob$fitted == protein_trunc$location)
+fit.miss <- length(protein_trunc$location) - fit.hit
+prob.mcr <- fit.miss / length(protein_trunc$location) 
+
+svm.prob.df <- attr(svm.pred.prob,'prob')
+mitomat <- matrix(svm.prob.df[,'MITO'], nrow = length(tmd_gravy_seq))
+pomat <- matrix(svm.prob.df[,'PO'], nrow = length(tmd_gravy_seq))
+ermat <- matrix(svm.prob.df[,'ER'], nrow = length(tmd_gravy_seq))
+
+
+protein_trunc.fit <- cbind(protein_trunc,as.character(svm.fit.prob$fitted))
+colnames(protein_trunc.fit)[4] <- c('predicted')
+#write.matrix(protein_trunc.fit, file = 'protein_trunc_fit.txt')
+
+
+n <- length(protein_trunc$location)
+cv.out <- rep(NA, n)
+# A simple looping leave-one-out cross validation
+for(i in 1:n){
+	
+	cv.fit <-  svm(location~., data = protein_trunc[-i, ], probability = TRUE)
+	cv.pred <- predict(cv.fit, newdata=protein_trunc[i, ], probability = TRUE)
+	cv.out[i] <- as.character(cv.pred) 
+
+}
+
+loo.hitrate <- sum(cv.out == as.character(protein_trunc$location)) / length(protein_trunc$location)
+
+labcex = 0.8
+pt.cex = 1.3
+
+par(las=1, mar = c(4,4,1,1))
+plot(test, col = truncpat[svm.pred], type = 'n', main = '',
+xlab = 'TMD GRAVY', ylab = 'Tail charge')#, main = 'SVM classifier class probability')
+
+contour(tmd_gravy_seq, tail_charge_seq, mitomat,
+	add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = mitoblue,labcex = labcex)
+contour(tmd_gravy_seq, tail_charge_seq, pomat,
+	add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = pogreen, labcex = labcex)
+contour(tmd_gravy_seq, tail_charge_seq, ermat,
+	add = TRUE,levels = c(0.5,0.6,0.7,0.8), col = ersalmon, labcex = labcex)
+    
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge,
+	col = 'black',bg = truncpat[protein_trunc$location], pch = 21, cex = pt.cex)
+points(test.sites$tmd_gravy, test.sites$tail_charge,
+	col = 'black', pch = 21, lwd = 1.5, cex = pt.cex)
+
+legend('topleft', legend = c(as.character(unique(protein_trunc$location)), 'test'),
+	col = 'black', pt.bg = c(truncpat[unique(protein_trunc$location)],'white'), pch = 21, text.col = c(truncpat[unique(protein_trunc$location)], 'black'), bg = 'white', pt.lwd = c(rep(1,3),1.5), pt.cex = pt.cex)
+
+#dev.print(pdf, file='svm_probability_contour.pdf', width = 5, height = 5)
+#dev.print(tiff, file='svm_probability_contour.tif', width = 480, height = 480)
+
+
+svm.protein <- svm(location~., data = protein, probability = TRUE)#!! 
+protein.hit <- sum(svm.protein$fitted == protein$location)
+
+protein.fit <- cbind(protein,as.character(svm.protein$fitted))
+colnames(protein.fit)[4] <- c('predicted')
+
+#write.matrix(protein.fit, file = 'protein_fit.txt')
+```
+
+
+# SVM classifier target predictions
+
+Predict tail anchoring location at new values of tmd_gravy and tail_charge.
+
+```{r, fig.width = 7, fig.height = 7}
+# ---------------------------------------------------------
+# Predict the location in the target data
+# ---------------------------------------------------------
+
+target.prob <- predict(svm.fit.prob, newdata = target, probability = TRUE )
+
+par(las=1)
+plot(target, type = 'n',  main = 'SVM classifier target predictions')
+points(target, col = truncpat[target.prob], pch = 21)
+contour(tmd_gravy_seq, tail_charge_seq, mitomat, add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = mitoblue)
+contour(tmd_gravy_seq, tail_charge_seq, pomat,add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = pogreen)
+contour(tmd_gravy_seq, tail_charge_seq, ermat,add = TRUE, levels = c(0.5,0.6,0.7,0.8), col = ersalmon)
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black',bg = truncpat[protein_trunc$location], pch = 21)
+legend('topright', legend = unique(protein_trunc$location), col = 'black', pt.bg = truncpat[unique(protein_trunc$location)], pch = 21, text.col = truncpat[unique(protein_trunc$location)], bg = 'white')
+
+#dev.print(pdf, file = 'protein_target.pdf', width = 6, height = 6)
+
+
+#write.matrix(cbind(target,attr(target.prob, 'probabilities'),target.prob), file = 'target_predictions.txt')
+
+```
+
+
+## Probabilistic fit for E.cuniculi
+```{r, fig.width = 7, fig.height = 7}
+
+target.prob.E.cunic <- predict(svm.fit.prob, newdata = E.cunic, probability = TRUE )
+
+par(las=1)
+plot(E.cunic, type = 'n',  main = 'SVM classifier target predictions')
+#points(target, col = truncpat[target.prob], pch = 21)
+points(E.cunic, col = truncpat[target.prob.E.cunic], pch = 21)
+
+contour(tmd_gravy_seq, tail_charge_seq, mitomat, add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = mitoblue)
+contour(tmd_gravy_seq, tail_charge_seq, pomat,add = TRUE, levels = c(0.5,0.6,0.7,0.8,1), col = pogreen)
+contour(tmd_gravy_seq, tail_charge_seq, ermat,add = TRUE, levels = c(0.5,0.6,0.7,0.8), col = ersalmon)
+
+points(protein_trunc$tmd_gravy, protein_trunc$tail_charge, col = 'black',bg = truncpat[protein_trunc$location], pch = 21)
+
+#points(E.cunic$tmd_gravy E.cunic$tail_charge, col = 'black',bg = truncpat[protein_trunc$location], pch = 21)
+
+legend('topright', legend = unique(protein_trunc$location), col = 'black', pt.bg = truncpat[unique(protein_trunc$location)], pch = 21, text.col = truncpat[unique(protein_trunc$location)], bg = 'white')
+
+
+```
+
+
+
+
+
+
+
+
